@@ -1,0 +1,89 @@
+- name: Setup Minikube and deploy Ecommerce app
+  hosts: ecommerce-app
+  become: yes
+  gather_facts: false
+
+  vars:
+    repo_url: "https://github.com/AbdullrahmanEissa/Kubernetes-Dockerized-Cluster-Ecommerce.git"
+    repo_dir: "/opt/ecommerce"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install base packages
+      apt:
+        name:
+          - curl
+          - git
+          - ca-certificates
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
+
+    - name: Install Docker Compose plugin
+      get_url:
+        url: https://github.com/docker/compose/releases/download/v2.25.0/docker-compose-linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Install kubectl
+      get_url:
+        url: https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+
+    - name: Install Minikube
+      get_url:
+        url: https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        dest: /usr/local/bin/minikube
+        mode: '0755'
+
+    - name: Start Minikube with docker driver
+      become_user: ubuntu
+      shell: |
+        minikube start --driver=docker
+      args:
+        creates: /home/ubuntu/.minikube
+
+    - name: Enable ingress addon
+      become_user: ubuntu
+      shell: |
+        minikube addons enable ingress
+
+    - name: Clone ecommerce repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ repo_dir }}"
+        force: yes
+
+    - name: Build Docker images inside Minikube
+      become_user: ubuntu
+      shell: |
+        eval $(minikube docker-env)
+        docker compose build
+      args:
+        chdir: "{{ repo_dir }}"
+
+    - name: Deploy application to Kubernetes
+      become_user: ubuntu
+      shell: |
+        kubectl apply -f kubernetes/
+      args:
+        chdir: "{{ repo_dir }}"
